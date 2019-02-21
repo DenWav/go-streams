@@ -171,3 +171,16 @@ func TestAvg(t *testing.T) {
 
 	require.EqualValues(t, 5, avg)
 }
+
+func TestCount(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{0, 1, 2}
+	count := streams.NewSliceStream(data).
+		Filter(func(i int) bool {
+			return i != 1
+		}).
+		Count()
+
+	require.Equal(t, 2, count)
+}
