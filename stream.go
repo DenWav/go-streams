@@ -141,186 +141,7 @@ type MapToFloatFunction interface{}
 // In this case, the Stream returned from 'streams.NewSliceStream()' on line 2 has an implicit type of 'string', and the
 // Stream returned from 'Map()' on line 3 has an implicit type of 'int', so the final Stream assigned to 's' also has
 // an implicit type of 'int'.
-type Stream interface {
-	// Map takes in a mapping function and returns a Stream whose elements are the elements of this Stream passed
-	// through the given mapping function.
-	//
-	// The given mapping function must have the type signature of:
-	//     <T, R> func(T) R
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur. The return type of this mapping function determines the new
-	// type for the elements in the returned Stream.
-	Map(mapperFunc MapFunction) Stream
-
-	// Filter takes in a filtering function and returns a Stream whose elements are the elements of this Stream that
-	// satisfy the given filtering function. When the function returns true, the element passes through. When the
-	// function returns false, the element is not allowed through.
-	//
-	// The given filtering function must have a type signature of:
-	//     <T> func(T) bool
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	Filter(filterFunc FilterFunction) Stream
-
-	// ChanFlatMap takes in a mapping function and returns a Stream whose elements are defined by the channel returned
-	// by the given mapping function. For example, if one element is passed to the mapping function, and the channel
-	// returned from the mapping function provides 2 elements, these 2 elements will be the elements of the returned
-	// Stream.
-	//
-	// The given mapping function must have a type signature of:
-	//     <T, R> func(T) <-chan R
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur. The type of the returned channel from this mapping function
-	// determines the new type for the elements in the returned Stream.
-	//
-	// For example, if the provided mapping function is
-	//     func(s string) <-chan rune
-	// then the returned Stream will process elements of type rune.
-	ChanFlatMap(mapperFunc ChanMapFunction) Stream
-
-	// SliceFlatMap takes in a mapping function and returns a Stream whose elements are defined by the slice returned
-	// by teh given mapping function. For example, if one element is passed to the mapping function, and the slice
-	// returned from the mapping function contains 2 elements, these 2 elements will be the elements of the returned
-	// Stream.
-	//
-	// The given mapping function must have a type signature of:
-	//     <T, R> func(T) []R
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur. The type of the returned slice from this mapping function
-	// determines the new type for the elements of the returned Stream.
-	//
-	// For example, if the provided mapping function is
-	//     func(s string) []rune
-	// then the returned Stream will process elements of type rune.
-	SliceFlatMap(mapperFunc SliceMapFunction) Stream
-
-	// Take returns a Stream that only passes along the first n elements it sees. After either the source Stream stops
-	// providing more items, or the source Stream has provided n items, this Stream will stop providing more items.
-	//
-	// This can be useful if processing data from an infinite channel, the Stream process will never complete unless you
-	// either call this function or call First to prevent the final Stream from continually processing items.
-	Take(n int) Stream
-
-	// Distinct returns a Stream that only passes along items that haven't been seen before. After seeing an item pass
-	// through, that item will no longer pass through if it is provided again by the source Stream.
-	//
-	// The equality check for items uses map[interface{}]bool keys.
-	Distinct() Stream
-
-	// Sort returns a Stream where every item is in sorted order defined by the given comparison function.
-	//
-	// The given comparison function must have a type signature of:
-	//     <T> func(left, right T) bool
-	// And the input type T must be compatible with every element in teh Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	//
-	// Due to the nature of sorting, this is a pausing operation. That is to say, this operation waits until every item
-	// has been seen before continuing. Due to this, if using an infinite source, you must limit the total amount of
-	// items with Take() or this function will never complete.
-	Sort(lessFunc CompareFunction) Stream
-
-	// WithCancel takes in a sendable channel which takes a bool to signify that the Stream process has completed. Use
-	// this any time you have created a goroutine which should be stopped when the Stream has completed processing. The
-	// final Stream will send true to every cancelling channel given when a final operation occurs.
-	WithCancel(c chan<- bool) Stream
-
-	// First returns the first element in this Stream that satisfies the given filtering function. When the function
-	// returns true, the element will be returned. When the function returns false, the element is skipped.
-	//
-	// The given filtering function must have a type signature of:
-	//     <T> func(T) bool
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	First(filter FilterFunction) (interface{}, bool)
-
-	// ToSlice fills the given slice with the elements in the Stream. The slice type must be compatible with every item
-	// in the Stream. The input of this function must be a pointer to the slice, rather than the slice itself, so the
-	// slice may be resized as necessary.
-	ToSlice(t interface{})
-
-	// Count returns the number of elements in this Stream. Cannot be called on an infinite Stream.
-	Count() int
-
-	// Any returns true if there are any items in this Stream which satisfies the given filtering function. When the
-	// function returns true, true will be returned. When the function returns false, the item will be skipped and
-	// others will be tested. If no items pass, false will be returned.
-	//
-	// The given filtering function must have a type signature of:
-	//     <T> func(T) bool
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	Any(filter FilterFunction) bool
-
-	// None returns true if there are no items in this Stream which satisfies the given filtering function. When the
-	// function returns true, false will be returned. When the function returns true, the item will be skipped and
-	// others will be tested. If no items pass, true will be returned.
-	//
-	// The given filtering function must have a type signature of:
-	//     <T> func(T) bool
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	None(filter FilterFunction) bool
-
-	// All returns true if all items in this Stream which satisfies the given filtering function. When the function
-	// returns false, false will be returned. When the function returns true, the item will be skipped and
-	// others will be tested. If all items pass, true will be returned.
-	//
-	// The given filtering function must have a type signature of:
-	//     <T> func(T) bool
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	All(filter FilterFunction) bool
-
-	// SumInt32 returns the sum of the items in this Stream converted to int32 using the given mapping function.
-	//
-	// The given mapping function must have a type signature of:
-	//     <T> func(T) int32
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	SumInt32(mapperFunc MapToIntFunction) int32
-
-	// SumInt64 returns the sum of the items in this Stream converted to int64 using the given mapping function.
-	//
-	// The given mapping function must have a type signature of:
-	//     <T> func(T) int64
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	SumInt64(mapperFunc MapToIntFunction) int64
-
-	// SumFloat32 returns the sum of the items in this Stream converted to float32 using the given mapping function.
-	//
-	// The given mapping function must have a type signature of:
-	//     <T> func(T) float32
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	SumFloat32(mapperFunc MapToFloatFunction) float32
-
-	// SumFloat64 returns the sum of the items in this Stream converted to float64 using the given mapping function.
-	//
-	// The given mapping function must have a type signature of:
-	//     <T> func(T) float64
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	SumFloat64(mapperFunc MapToFloatFunction) float64
-
-	// AvgInt returns the average of the items in this Stream converted to int64 using the given mapping function.
-	//
-	// The given mapping function must have a type signature of:
-	//     <T> func(T) int64
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	AvgInt(mapperFunc MapToIntFunction) int64
-
-	// AvgFloat returns the average of the items in this Stream converted to float64 using the given mapping function.
-	//
-	// The given mapping function must have a type signature of:
-	//     <T> func(T) float64
-	// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-	// type signature isn't correct, a panic will occur.
-	AvgFloat(mapperFunc MapToFloatFunction) float64
-}
-
-type stream struct {
+type Stream struct {
 	next   func() (interface{}, bool)
 	cancel *[]chan<- bool
 }
@@ -335,14 +156,14 @@ type stream struct {
 // to be stopped when processing of the Stream completes. A single 'true' value will be sent to each channel given. The
 // send operation will not wait or block, so either define each channel as a buffered channel, or make sure you're
 // always listening to it.
-func NewChanStream(channel interface{}, cancel ...chan<- bool) Stream {
+func NewChanStream(channel interface{}, cancel ...chan<- bool) *Stream {
 	generic, c := generifyChannel(channel)
 
 	cancels := make([]chan<- bool, len(cancel)+1)
 	copy(cancels, cancel)
 	cancels[len(cancel)] = c
 
-	return &stream{func() (interface{}, bool) {
+	return &Stream{func() (interface{}, bool) {
 		item, ok := <-generic
 		if ok {
 			return item, true
@@ -354,12 +175,12 @@ func NewChanStream(channel interface{}, cancel ...chan<- bool) Stream {
 
 // NewSliceStream creates a new Stream object that uses the provided slice as the source. Teh first argument to this
 // function must be a []R where R is some type. The implicit type of the returned Stream will be R.
-func NewSliceStream(slice interface{}) Stream {
+func NewSliceStream(slice interface{}) *Stream {
 	generic := generifySlice(slice)
 
 	index := 0
 
-	return &stream{func() (interface{}, bool) {
+	return &Stream{func() (interface{}, bool) {
 		if index < len(generic) {
 			item := generic[index]
 			index++
@@ -468,7 +289,7 @@ func callFunc(f interface{}, args ...interface{}) []interface{} {
 	return convertToInterfaces(res)
 }
 
-func (s *stream) finish() {
+func (s *Stream) finish() {
 	for _, c := range *s.cancel {
 		if c != nil {
 			select {
@@ -479,8 +300,16 @@ func (s *stream) finish() {
 	}
 }
 
-func (s *stream) Map(mapperFunc MapFunction) Stream { // <T, R> func(T) R
-	return &stream{func() (interface{}, bool) {
+// Map takes in a mapping function and returns a Stream whose elements are the elements of this Stream passed
+// through the given mapping function.
+//
+// The given mapping function must have the type signature of:
+//     <T, R> func(T) R
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur. The return type of this mapping function determines the new
+// type for the elements in the returned Stream.
+func (s *Stream) Map(mapperFunc MapFunction) *Stream {
+	return &Stream{func() (interface{}, bool) {
 		n, more := s.next()
 		if !more {
 			return nil, false
@@ -489,8 +318,16 @@ func (s *stream) Map(mapperFunc MapFunction) Stream { // <T, R> func(T) R
 	}, s.cancel}
 }
 
-func (s *stream) Filter(filterFunc FilterFunction) Stream { // <T> func(T) bool
-	return &stream{func() (interface{}, bool) {
+// Filter takes in a filtering function and returns a Stream whose elements are the elements of this Stream that
+// satisfy the given filtering function. When the function returns true, the element passes through. When the
+// function returns false, the element is not allowed through.
+//
+// The given filtering function must have a type signature of:
+//     <T> func(T) bool
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) Filter(filterFunc FilterFunction) *Stream {
+	return &Stream{func() (interface{}, bool) {
 		n, more := s.next()
 		for more {
 			if callFunc(filterFunc, n)[0].(bool) {
@@ -502,7 +339,21 @@ func (s *stream) Filter(filterFunc FilterFunction) Stream { // <T> func(T) bool
 	}, s.cancel}
 }
 
-func (s *stream) ChanFlatMap(mapperFunc ChanMapFunction) Stream { // <T, R> func(T) <-chan R
+// ChanFlatMap takes in a mapping function and returns a Stream whose elements are defined by the channel returned
+// by the given mapping function. For example, if one element is passed to the mapping function, and the channel
+// returned from the mapping function provides 2 elements, these 2 elements will be the elements of the returned
+// Stream.
+//
+// The given mapping function must have a type signature of:
+//     <T, R> func(T) <-chan R
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur. The type of the returned channel from this mapping function
+// determines the new type for the elements in the returned Stream.
+//
+// For example, if the provided mapping function is
+//     func(s string) <-chan rune
+// then the returned Stream will process elements of type rune.
+func (s *Stream) ChanFlatMap(mapperFunc ChanMapFunction) *Stream {
 	var currentChan <-chan interface{}
 
 	nextChan := func() {
@@ -533,7 +384,7 @@ func (s *stream) ChanFlatMap(mapperFunc ChanMapFunction) Stream { // <T, R> func
 		return next, false, true
 	}
 
-	return &stream{func() (interface{}, bool) {
+	return &Stream{func() (interface{}, bool) {
 		res, retry, more := nextItem()
 		if !more {
 			return nil, false
@@ -548,7 +399,21 @@ func (s *stream) ChanFlatMap(mapperFunc ChanMapFunction) Stream { // <T, R> func
 	}, s.cancel}
 }
 
-func (s *stream) SliceFlatMap(mapperFunc SliceMapFunction) Stream { // <T, R> func(T) []R
+// SliceFlatMap takes in a mapping function and returns a Stream whose elements are defined by the slice returned
+// by teh given mapping function. For example, if one element is passed to the mapping function, and the slice
+// returned from the mapping function contains 2 elements, these 2 elements will be the elements of the returned
+// Stream.
+//
+// The given mapping function must have a type signature of:
+//     <T, R> func(T) []R
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur. The type of the returned slice from this mapping function
+// determines the new type for the elements of the returned Stream.
+//
+// For example, if the provided mapping function is
+//     func(s string) []rune
+// then the returned Stream will process elements of type rune.
+func (s *Stream) SliceFlatMap(mapperFunc SliceMapFunction) *Stream {
 	return s.ChanFlatMap(func(item interface{}) <-chan interface{} {
 		if item == nil {
 			return nil
@@ -568,9 +433,14 @@ func (s *stream) SliceFlatMap(mapperFunc SliceMapFunction) Stream { // <T, R> fu
 	})
 }
 
-func (s *stream) Take(n int) Stream {
+// Take returns a Stream that only passes along the first n elements it sees. After either the source Stream stops
+// providing more items, or the source Stream has provided n items, this Stream will stop providing more items.
+//
+// This can be useful if processing data from an infinite channel, the Stream process will never complete unless you
+// either call this function or call First to prevent the final Stream from continually processing items.
+func (s *Stream) Take(n int) *Stream {
 	count := 0
-	return &stream{func() (interface{}, bool) {
+	return &Stream{func() (interface{}, bool) {
 		if count >= n {
 			return nil, false
 		}
@@ -584,10 +454,14 @@ func (s *stream) Take(n int) Stream {
 	}, s.cancel}
 }
 
-func (s *stream) Distinct() Stream {
+// Distinct returns a Stream that only passes along items that haven't been seen before. After seeing an item pass
+// through, that item will no longer pass through if it is provided again by the source Stream.
+//
+// The equality check for items uses map[interface{}]bool keys.
+func (s *Stream) Distinct() *Stream {
 	m := make(map[interface{}]bool)
 
-	return &stream{func() (interface{}, bool) {
+	return &Stream{func() (interface{}, bool) {
 		for {
 			item, more := s.next()
 			if !more {
@@ -619,7 +493,17 @@ func (s *sortable) Less(i, j int) bool {
 	return callFunc(s.compFunc, s.data[i], s.data[j])[0].(bool)
 }
 
-func (s *stream) Sort(lessFunc CompareFunction) Stream { // <T> func(left, right T) bool
+// Sort returns a Stream where every item is in sorted order defined by the given comparison function.
+//
+// The given comparison function must have a type signature of:
+//     <T> func(left, right T) bool
+// And the input type T must be compatible with every element in teh Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+//
+// Due to the nature of sorting, this is a pausing operation. That is to say, this operation waits until every item
+// has been seen before continuing. Due to this, if using an infinite source, you must limit the total amount of
+// items with Take() or this function will never complete.
+func (s *Stream) Sort(lessFunc CompareFunction) *Stream {
 	var (
 		sorted []interface{} = nil
 		index                = 0
@@ -635,7 +519,7 @@ func (s *stream) Sort(lessFunc CompareFunction) Stream { // <T> func(left, right
 		sorted = sortableData.data
 	}
 
-	return &stream{func() (interface{}, bool) {
+	return &Stream{func() (interface{}, bool) {
 		if sorted == nil {
 			doSort()
 		}
@@ -650,12 +534,22 @@ func (s *stream) Sort(lessFunc CompareFunction) Stream { // <T> func(left, right
 	}, s.cancel}
 }
 
-func (s *stream) WithCancel(c chan<- bool) Stream {
+// WithCancel takes in a sendable channel which takes a bool to signify that the Stream process has completed. Use
+// this any time you have created a goroutine which should be stopped when the Stream has completed processing. The
+// final Stream will send true to every cancelling channel given when a final operation occurs.
+func (s *Stream) WithCancel(c chan<- bool) *Stream {
 	cancels := append(*s.cancel, c)
-	return &stream{s.next, &cancels}
+	return &Stream{s.next, &cancels}
 }
 
-func (s *stream) First(filterFunc FilterFunction) (interface{}, bool) { // <T> func(T) bool
+// First returns the first element in this Stream that satisfies the given filtering function. When the function
+// returns true, the element will be returned. When the function returns false, the element is skipped.
+//
+// The given filtering function must have a type signature of:
+//     <T> func(T) bool
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) First(filterFunc FilterFunction) (interface{}, bool) {
 	for {
 		n, more := s.next()
 		if !more {
@@ -669,7 +563,10 @@ func (s *stream) First(filterFunc FilterFunction) (interface{}, bool) { // <T> f
 	}
 }
 
-func (s *stream) ToSlice(t interface{}) {
+// ToSlice fills the given slice with the elements in the Stream. The slice type must be compatible with every item
+// in the Stream. The input of this function must be a pointer to the slice, rather than the slice itself, so the
+// slice may be resized as necessary.
+func (s *Stream) ToSlice(t interface{}) {
 	sliceValue := reflect.ValueOf(t).Elem()
 
 	for {
@@ -682,7 +579,8 @@ func (s *stream) ToSlice(t interface{}) {
 	}
 }
 
-func (s *stream) Count() int {
+// Count returns the number of elements in this Stream. Cannot be called on an infinite Stream.
+func (s *Stream) Count() int {
 	var i = 0
 	for {
 		_, more := s.next()
@@ -694,7 +592,15 @@ func (s *stream) Count() int {
 	}
 }
 
-func (s *stream) Any(filterFunc FilterFunction) bool { // <T> func(T) bool
+// Any returns true if there are any items in this Stream which satisfies the given filtering function. When the
+// function returns true, true will be returned. When the function returns false, the item will be skipped and
+// others will be tested. If no items pass, false will be returned.
+//
+// The given filtering function must have a type signature of:
+//     <T> func(T) bool
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) Any(filterFunc FilterFunction) bool {
 	for {
 		n, more := s.next()
 		if !more {
@@ -708,11 +614,27 @@ func (s *stream) Any(filterFunc FilterFunction) bool { // <T> func(T) bool
 	}
 }
 
-func (s *stream) None(filterFunc FilterFunction) bool { // <T> func(T) bool
+// None returns true if there are no items in this Stream which satisfies the given filtering function. When the
+// function returns true, false will be returned. When the function returns true, the item will be skipped and
+// others will be tested. If no items pass, true will be returned.
+//
+// The given filtering function must have a type signature of:
+//     <T> func(T) bool
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) None(filterFunc FilterFunction) bool {
 	return !s.Any(filterFunc)
 }
 
-func (s *stream) All(filterFunc FilterFunction) bool { // <T> func(T) bool
+// All returns true if all items in this Stream which satisfies the given filtering function. When the function
+// returns false, false will be returned. When the function returns true, the item will be skipped and
+// others will be tested. If all items pass, true will be returned.
+//
+// The given filtering function must have a type signature of:
+//     <T> func(T) bool
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) All(filterFunc FilterFunction) bool {
 	for {
 		n, more := s.next()
 		if !more {
@@ -726,7 +648,13 @@ func (s *stream) All(filterFunc FilterFunction) bool { // <T> func(T) bool
 	}
 }
 
-func (s *stream) SumInt32(mapperFunc MapToIntFunction) int32 { // <T> func(T) int32
+// SumInt32 returns the sum of the items in this Stream converted to int32 using the given mapping function.
+//
+// The given mapping function must have a type signature of:
+//     <T> func(T) int32
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) SumInt32(mapperFunc MapToIntFunction) int32 {
 	var res int32 = 0
 	for {
 		v, more := s.next()
@@ -739,7 +667,13 @@ func (s *stream) SumInt32(mapperFunc MapToIntFunction) int32 { // <T> func(T) in
 	return res
 }
 
-func (s *stream) SumInt64(mapperFunc MapToIntFunction) int64 { // <T> func(T) int64
+// SumInt64 returns the sum of the items in this Stream converted to int64 using the given mapping function.
+//
+// The given mapping function must have a type signature of:
+//     <T> func(T) int64
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) SumInt64(mapperFunc MapToIntFunction) int64 {
 	var res int64 = 0
 	for {
 		v, more := s.next()
@@ -752,7 +686,13 @@ func (s *stream) SumInt64(mapperFunc MapToIntFunction) int64 { // <T> func(T) in
 	return res
 }
 
-func (s *stream) SumFloat32(mapperFunc MapToFloatFunction) float32 { // <T> func(T) float32
+// SumFloat32 returns the sum of the items in this Stream converted to float32 using the given mapping function.
+//
+// The given mapping function must have a type signature of:
+//     <T> func(T) float32
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) SumFloat32(mapperFunc MapToFloatFunction) float32 {
 	var res float32 = 0
 	for {
 		v, more := s.next()
@@ -765,7 +705,13 @@ func (s *stream) SumFloat32(mapperFunc MapToFloatFunction) float32 { // <T> func
 	return res
 }
 
-func (s *stream) SumFloat64(mapperFunc MapToFloatFunction) float64 { // <T> func(T) float64
+// SumFloat64 returns the sum of the items in this Stream converted to float64 using the given mapping function.
+//
+// The given mapping function must have a type signature of:
+//     <T> func(T) float64
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) SumFloat64(mapperFunc MapToFloatFunction) float64 {
 	var res float64 = 0
 	for {
 		v, more := s.next()
@@ -778,7 +724,13 @@ func (s *stream) SumFloat64(mapperFunc MapToFloatFunction) float64 { // <T> func
 	return res
 }
 
-func (s *stream) AvgInt(mapperFunc MapToIntFunction) int64 { // <T> func(T) int64
+// AvgInt returns the average of the items in this Stream converted to int64 using the given mapping function.
+//
+// The given mapping function must have a type signature of:
+//     <T> func(T) int64
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) AvgInt(mapperFunc MapToIntFunction) int64 {
 	var slice []interface{}
 	s.ToSlice(&slice)
 
@@ -791,7 +743,13 @@ func (s *stream) AvgInt(mapperFunc MapToIntFunction) int64 { // <T> func(T) int6
 	return int64(math.Round(float64(sum) / float64(len(slice))))
 }
 
-func (s *stream) AvgFloat(mapperFunc MapToFloatFunction) float64 { // <T> func(T) float64
+// AvgFloat returns the average of the items in this Stream converted to float64 using the given mapping function.
+//
+// The given mapping function must have a type signature of:
+//     <T> func(T) float64
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+func (s *Stream) AvgFloat(mapperFunc MapToFloatFunction) float64 {
 	var slice []interface{}
 	s.ToSlice(&slice)
 
