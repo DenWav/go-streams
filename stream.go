@@ -58,44 +58,58 @@ import (
 )
 
 // MapFunction is an empty stand-in type for a generic function with a type signature as
+//
 //     <T, R> func(T) R
+//
 // Where there is some type T as input to the function, and some type R as output. If this type signature is not
 // maintained where this function is used, a panic will occur.
 type MapFunction interface{}
 
 // FilterFunction is an empty stand-in type for a generic function with a type signature as
+//
 //     <T> func(T) bool
+//
 // Where there is some type T as input to the function, and a single bool as output. If this type signature is not
 // maintained where this function is used, a panic will occur.
 type FilterFunction interface{}
 
 // ChanMapFunction is an empty stand-in type for a generic function with a type signature as
+//
 //     <T, R> func(T) <-chan R
+//
 // Where there is some type T as input to the function, and a receiver channel of some type R as output. If this type
 // signature is not maintained where this function is used, a panic will occur.
 type ChanMapFunction interface{}
 
 // SliceMapFunction is an empty stand-in type for a generic function with a type signature as
+//
 //     <T, R> func(T) []R
+//
 // Where there is some type T as input to the function, and a slice of some type R as output. If this type
 // signature is not maintained where this function is used, a panic will occur.
 type SliceMapFunction interface{}
 
 // CompareFunction is an empty stand-in type for a generic function with a type signature as
+//
 //     <T> func(left, right T) bool
+//
 // Where there is some type T which is the same type for 2 input parameters to the function, and a single bool as
 // output. If this type signature is not maintained where this function is used, a panic will occur.
 type CompareFunction interface{}
 
 // MapToIntFunction is an empty stand-in type for a generic function with a type signature as
+//
 //     <T, I : int> func(T) I
+//
 // Where there is some type T as input to the function, and an int type as output. The necessary int type is defined by
 // the function which takes this as input. If this type signature is not maintained where this function is used, a
 // panic will occur.
 type MapToIntFunction interface{}
 
 // MapToFloatFunction is an empty stand-in type for a generic function with a type signature as
+//
 //     <T, F : float> func(T) F
+//
 // Where there is some type T as input to the function, and a float type as output. The necessary float type is defined
 // by the function which takes this as input. If this type signature is not maintained where this function is used, a
 // panic will occur.
@@ -124,20 +138,26 @@ type MapToFloatFunction interface{}
 // continues, the implicit type changes.
 //
 // For example, with a Stream created:
+//
 //     slice := []string{"foo", "bar"}
 //     s := streams.NewSliceStream(slice)
+//
 // The Stream 's' would have an implicit type of 'string'. If you did a mapping operation:
+//
 //     s1 := s.Map(func(word string) int {
 //         return len(word)
 //     })
+//
 // Then the resulting Stream 's1' would have an implicit type of 'int'. Note that Stream sources can only be evaluated
 // once, so it usually doesn't make sense to assign each operation to a different value, so the above could bbe instead
 // written as:
-// 1     slice := []string{"foo", "bar"}
-// 2     s := streams.NewSliceStream(slice).
-// 3         Map(func(word string) int {
-// 4             return len(word)
-// 5         })
+//
+//     1 slice := []string{"foo", "bar"}
+//     2 s := streams.NewSliceStream(slice).
+//     3     Map(func(word string) int {
+//     4         return len(word)
+//     5     })
+//
 // In this case, the Stream returned from 'streams.NewSliceStream()' on line 2 has an implicit type of 'string', and the
 // Stream returned from 'Map()' on line 3 has an implicit type of 'int', so the final Stream assigned to 's' also has
 // an implicit type of 'int'.
@@ -304,7 +324,9 @@ func (s *Stream) finish() {
 // through the given mapping function.
 //
 // The given mapping function must have the type signature of:
+//
 //     <T, R> func(T) R
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur. The return type of this mapping function determines the new
 // type for the elements in the returned Stream.
@@ -323,7 +345,9 @@ func (s *Stream) Map(mapperFunc MapFunction) *Stream {
 // function returns false, the element is not allowed through.
 //
 // The given filtering function must have a type signature of:
+//
 //     <T> func(T) bool
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) Filter(filterFunc FilterFunction) *Stream {
@@ -345,13 +369,17 @@ func (s *Stream) Filter(filterFunc FilterFunction) *Stream {
 // Stream.
 //
 // The given mapping function must have a type signature of:
+//
 //     <T, R> func(T) <-chan R
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur. The type of the returned channel from this mapping function
 // determines the new type for the elements in the returned Stream.
 //
 // For example, if the provided mapping function is
+//
 //     func(s string) <-chan rune
+//
 // then the returned Stream will process elements of type rune.
 func (s *Stream) ChanFlatMap(mapperFunc ChanMapFunction) *Stream {
 	var currentChan <-chan interface{}
@@ -405,13 +433,17 @@ func (s *Stream) ChanFlatMap(mapperFunc ChanMapFunction) *Stream {
 // Stream.
 //
 // The given mapping function must have a type signature of:
+//
 //     <T, R> func(T) []R
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur. The type of the returned slice from this mapping function
 // determines the new type for the elements of the returned Stream.
 //
 // For example, if the provided mapping function is
+//
 //     func(s string) []rune
+//
 // then the returned Stream will process elements of type rune.
 func (s *Stream) SliceFlatMap(mapperFunc SliceMapFunction) *Stream {
 	return s.ChanFlatMap(func(item interface{}) <-chan interface{} {
@@ -496,7 +528,9 @@ func (s *sortable) Less(i, j int) bool {
 // Sort returns a Stream where every item is in sorted order defined by the given comparison function.
 //
 // The given comparison function must have a type signature of:
+//
 //     <T> func(left, right T) bool
+//
 // And the input type T must be compatible with every element in teh Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 //
@@ -546,7 +580,9 @@ func (s *Stream) WithCancel(c chan<- bool) *Stream {
 // returns true, the element will be returned. When the function returns false, the element is skipped.
 //
 // The given filtering function must have a type signature of:
+//
 //     <T> func(T) bool
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) First(filterFunc FilterFunction) (interface{}, bool) {
@@ -597,7 +633,9 @@ func (s *Stream) Count() int {
 // others will be tested. If no items pass, false will be returned.
 //
 // The given filtering function must have a type signature of:
+//
 //     <T> func(T) bool
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) Any(filterFunc FilterFunction) bool {
@@ -619,7 +657,9 @@ func (s *Stream) Any(filterFunc FilterFunction) bool {
 // others will be tested. If no items pass, true will be returned.
 //
 // The given filtering function must have a type signature of:
+//
 //     <T> func(T) bool
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) None(filterFunc FilterFunction) bool {
@@ -631,7 +671,9 @@ func (s *Stream) None(filterFunc FilterFunction) bool {
 // others will be tested. If all items pass, true will be returned.
 //
 // The given filtering function must have a type signature of:
+//
 //     <T> func(T) bool
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) All(filterFunc FilterFunction) bool {
@@ -651,7 +693,9 @@ func (s *Stream) All(filterFunc FilterFunction) bool {
 // SumInt32 returns the sum of the items in this Stream converted to int32 using the given mapping function.
 //
 // The given mapping function must have a type signature of:
+//
 //     <T> func(T) int32
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) SumInt32(mapperFunc MapToIntFunction) int32 {
@@ -670,7 +714,9 @@ func (s *Stream) SumInt32(mapperFunc MapToIntFunction) int32 {
 // SumInt64 returns the sum of the items in this Stream converted to int64 using the given mapping function.
 //
 // The given mapping function must have a type signature of:
+//
 //     <T> func(T) int64
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) SumInt64(mapperFunc MapToIntFunction) int64 {
@@ -689,7 +735,9 @@ func (s *Stream) SumInt64(mapperFunc MapToIntFunction) int64 {
 // SumFloat32 returns the sum of the items in this Stream converted to float32 using the given mapping function.
 //
 // The given mapping function must have a type signature of:
+//
 //     <T> func(T) float32
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) SumFloat32(mapperFunc MapToFloatFunction) float32 {
@@ -708,7 +756,9 @@ func (s *Stream) SumFloat32(mapperFunc MapToFloatFunction) float32 {
 // SumFloat64 returns the sum of the items in this Stream converted to float64 using the given mapping function.
 //
 // The given mapping function must have a type signature of:
+//
 //     <T> func(T) float64
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) SumFloat64(mapperFunc MapToFloatFunction) float64 {
@@ -727,7 +777,9 @@ func (s *Stream) SumFloat64(mapperFunc MapToFloatFunction) float64 {
 // AvgInt returns the average of the items in this Stream converted to int64 using the given mapping function.
 //
 // The given mapping function must have a type signature of:
+//
 //     <T> func(T) int64
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) AvgInt(mapperFunc MapToIntFunction) int64 {
@@ -746,7 +798,9 @@ func (s *Stream) AvgInt(mapperFunc MapToIntFunction) int64 {
 // AvgFloat returns the average of the items in this Stream converted to float64 using the given mapping function.
 //
 // The given mapping function must have a type signature of:
+//
 //     <T> func(T) float64
+//
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) AvgFloat(mapperFunc MapToFloatFunction) float64 {
