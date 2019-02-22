@@ -73,6 +73,14 @@ type MapFunction interface{}
 // maintained where this function is used, a panic will occur.
 type FilterFunction interface{}
 
+// VoidFunction is an empty stand-in type for a generic function with a type signature as
+//
+//     <T> func(T)
+//
+// Where there is some type T as input to the function, and no output. If this type signature is not maintained where
+// this function is used, a panic will occur.
+type VoidFunction interface{}
+
 // ChanMapFunction is an empty stand-in type for a generic function with a type signature as
 //
 //     <T, R> func(T) <-chan R
@@ -95,6 +103,9 @@ type SliceMapFunction interface{}
 //
 // Where there is some type T which is the same type for 2 input parameters to the function, and a single bool as
 // output. If this type signature is not maintained where this function is used, a panic will occur.
+//
+// The function should return true if the left parameter should be considered smaller, or should come before, the right
+// parameter.
 type CompareFunction interface{}
 
 // MapToIntFunction is an empty stand-in type for a generic function with a type signature as
@@ -486,6 +497,26 @@ func (s *Stream) Take(n int) *Stream {
 	}, s.cancel}
 }
 
+// Skip returns a Stream that skips the first n elements it sees before passing along any elements. If the Stream never
+// sees n elements, this Stream will never pass along any items.
+func (s *Stream) Skip(n int) *Stream {
+	count := 0
+	return &Stream{func() (interface{}, bool) {
+		if count >= n {
+			return s.next()
+		}
+		for count < n {
+			// Ignore these
+			_, more := s.next()
+			if !more {
+				return nil, false
+			}
+			count++
+		}
+		return s.next()
+	}, s.cancel}
+}
+
 // Distinct returns a Stream that only passes along items that haven't been seen before. After seeing an item pass
 // through, that item will no longer pass through if it is provided again by the source Stream.
 //
@@ -531,8 +562,11 @@ func (s *sortable) Less(i, j int) bool {
 //
 //     <T> func(left, right T) bool
 //
-// And the input type T must be compatible with every element in teh Stream that makes it to this function. If this
+// And the input type T must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
+//
+// The given function should return true if the left parameter should be considered smaller, or should come before, the
+// right parameter.
 //
 // Due to the nature of sorting, this is a pausing operation. That is to say, this operation waits until every item
 // has been seen before continuing. Due to this, if using an infinite source, you must limit the total amount of
@@ -568,6 +602,27 @@ func (s *Stream) Sort(lessFunc CompareFunction) *Stream {
 	}, s.cancel}
 }
 
+// OnEach returns a Stream where every element in the Stream is passed through the given function first before
+// continuing. The function returns nothing and does not modify the element. This is similar to ForEach, but is an
+// intermediate operation.
+//
+// The given function must have a type signature of:
+//
+//     <T> func(T)
+//
+// And the input type T must be compatible with ever element in the Stream that makes it to this function. If this type
+// signature isn't correct, a panic will occur.
+func (s *Stream) OnEach(voidFunc VoidFunction) *Stream {
+	return &Stream{func() (interface{}, bool) {
+		n, more := s.next()
+		if !more {
+			return nil, false
+		}
+		callFunc(voidFunc, n)
+		return n, true
+	}, s.cancel}
+}
+
 // WithCancel takes in a sendable channel which takes a bool to signify that the Stream process has completed. Use
 // this any time you have created a goroutine which should be stopped when the Stream has completed processing. The
 // final Stream will send true to every cancelling channel given when a final operation occurs.
@@ -586,14 +641,14 @@ func (s *Stream) WithCancel(c chan<- bool) *Stream {
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) First(filterFunc FilterFunction) (interface{}, bool) {
+	defer s.finish()
+
 	for {
 		n, more := s.next()
 		if !more {
-			s.finish()
 			return nil, false
 		}
 		if callFunc(filterFunc, n)[0].(bool) {
-			s.finish()
 			return n, true
 		}
 	}
@@ -603,12 +658,13 @@ func (s *Stream) First(filterFunc FilterFunction) (interface{}, bool) {
 // in the Stream. The input of this function must be a pointer to the slice, rather than the slice itself, so the
 // slice may be resized as necessary.
 func (s *Stream) ToSlice(t interface{}) {
+	defer s.finish()
+
 	sliceValue := reflect.ValueOf(t).Elem()
 
 	for {
 		n, more := s.next()
 		if !more {
-			s.finish()
 			return
 		}
 		sliceValue.Set(reflect.Append(sliceValue, reflect.ValueOf(n)))
@@ -617,11 +673,12 @@ func (s *Stream) ToSlice(t interface{}) {
 
 // Count returns the number of elements in this Stream. Cannot be called on an infinite Stream.
 func (s *Stream) Count() int {
+	defer s.finish()
+
 	var i = 0
 	for {
 		_, more := s.next()
 		if !more {
-			s.finish()
 			return i
 		}
 		i++
@@ -639,14 +696,14 @@ func (s *Stream) Count() int {
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) Any(filterFunc FilterFunction) bool {
+	defer s.finish()
+
 	for {
 		n, more := s.next()
 		if !more {
-			s.finish()
 			return false
 		}
 		if callFunc(filterFunc, n)[0].(bool) {
-			s.finish()
 			return true
 		}
 	}
@@ -677,16 +734,67 @@ func (s *Stream) None(filterFunc FilterFunction) bool {
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) All(filterFunc FilterFunction) bool {
+	defer s.finish()
+
 	for {
 		n, more := s.next()
 		if !more {
-			s.finish()
 			return true
 		}
 		if !callFunc(filterFunc, n)[0].(bool) {
-			s.finish()
 			return false
 		}
+	}
+}
+
+// ForEach runs the given function with each element in the Stream that makes it to this function.
+//
+// The given function must have a type signature of:
+//
+//     <T> func(T)
+//
+// And the input type must be compatible with every element in the Stream that makes it to this function. If this type
+// signature isn't correct, a panic will occur.
+func (s *Stream) ForEach(voidFunc VoidFunction) {
+	defer s.finish()
+
+	for {
+		n, more := s.next()
+		if !more {
+			return
+		}
+		callFunc(voidFunc, n)
+	}
+}
+
+// ToChan sends the elements of this Stream to the given channel. The channel must be compatible with the type of every
+// element in this Stream. If the given channel is not compatible with an element in this Stream then a panic will
+// occur.
+//
+// When no more items are to be sent to the channel, the given channel will be closed.
+func (s *Stream) ToChan(channel interface{}) {
+	defer s.finish()
+
+	t := reflect.TypeOf(channel)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Chan || t.ChanDir()&reflect.SendDir == 0 {
+		panic(errors.New("provided type is not chan<- T"))
+	}
+
+	val := reflect.ValueOf(channel)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	for {
+		n, more := s.next()
+		if !more {
+			val.Close()
+			return
+		}
+		val.Send(reflect.ValueOf(n))
 	}
 }
 
@@ -699,6 +807,8 @@ func (s *Stream) All(filterFunc FilterFunction) bool {
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) SumInt32(mapperFunc MapToIntFunction) int32 {
+	defer s.finish()
+
 	var res int32 = 0
 	for {
 		v, more := s.next()
@@ -707,7 +817,6 @@ func (s *Stream) SumInt32(mapperFunc MapToIntFunction) int32 {
 		}
 		res += callFunc(mapperFunc, v)[0].(int32)
 	}
-	s.finish()
 	return res
 }
 
@@ -720,6 +829,8 @@ func (s *Stream) SumInt32(mapperFunc MapToIntFunction) int32 {
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) SumInt64(mapperFunc MapToIntFunction) int64 {
+	defer s.finish()
+
 	var res int64 = 0
 	for {
 		v, more := s.next()
@@ -728,7 +839,6 @@ func (s *Stream) SumInt64(mapperFunc MapToIntFunction) int64 {
 		}
 		res += callFunc(mapperFunc, v)[0].(int64)
 	}
-	s.finish()
 	return res
 }
 
@@ -741,6 +851,8 @@ func (s *Stream) SumInt64(mapperFunc MapToIntFunction) int64 {
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) SumFloat32(mapperFunc MapToFloatFunction) float32 {
+	defer s.finish()
+
 	var res float32 = 0
 	for {
 		v, more := s.next()
@@ -749,7 +861,6 @@ func (s *Stream) SumFloat32(mapperFunc MapToFloatFunction) float32 {
 		}
 		res += callFunc(mapperFunc, v)[0].(float32)
 	}
-	s.finish()
 	return res
 }
 
@@ -762,6 +873,8 @@ func (s *Stream) SumFloat32(mapperFunc MapToFloatFunction) float32 {
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) SumFloat64(mapperFunc MapToFloatFunction) float64 {
+	defer s.finish()
+
 	var res float64 = 0
 	for {
 		v, more := s.next()
@@ -770,7 +883,6 @@ func (s *Stream) SumFloat64(mapperFunc MapToFloatFunction) float64 {
 		}
 		res += callFunc(mapperFunc, v)[0].(float64)
 	}
-	s.finish()
 	return res
 }
 
@@ -783,16 +895,24 @@ func (s *Stream) SumFloat64(mapperFunc MapToFloatFunction) float64 {
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) AvgInt(mapperFunc MapToIntFunction) int64 {
-	var slice []interface{}
-	s.ToSlice(&slice)
+	defer s.finish()
 
-	var sum int64 = 0
+	var (
+		sum int64 = 0
+		count = 0
+	)
 
-	for _, item := range slice {
+	for {
+		item, more := s.next()
+		if !more {
+			break
+		}
+
 		sum += callFunc(mapperFunc, item)[0].(int64)
+		count++
 	}
 
-	return int64(math.Round(float64(sum) / float64(len(slice))))
+	return int64(math.Round(float64(sum) / float64(count)))
 }
 
 // AvgFloat returns the average of the items in this Stream converted to float64 using the given mapping function.
@@ -804,14 +924,82 @@ func (s *Stream) AvgInt(mapperFunc MapToIntFunction) int64 {
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
 func (s *Stream) AvgFloat(mapperFunc MapToFloatFunction) float64 {
-	var slice []interface{}
-	s.ToSlice(&slice)
+	defer s.finish()
 
-	var sum float64 = 0
+	var (
+		sum float64 = 0
+		count = 0
+	)
 
-	for _, item := range slice {
+	for {
+		item, more := s.next()
+		if !more {
+			break
+		}
+
 		sum += callFunc(mapperFunc, item)[0].(float64)
+		count++
 	}
 
-	return sum / float64(len(slice))
+	return sum / float64(count)
+}
+
+// Min finds the smallest value in this Stream based on the given comparison function.
+//
+// The given comparison function must have a type signature of:
+//
+//    <T> func(left, right T) bool
+//
+// And the input type T must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+//
+// The given function should return true if the left parameter should be considered smaller, or should come before, the
+// right parameter.
+func (s *Stream) Min(output interface{}, lessFunc CompareFunction) {
+	defer s.finish()
+
+	var smallest interface{}
+
+	for {
+		item, more := s.next()
+		if !more {
+			break
+		}
+
+		if smallest == nil {
+			smallest = item
+		} else {
+			if !callFunc(lessFunc, smallest, item)[0].(bool) {
+				smallest = item
+			}
+		}
+	}
+
+	if smallest == nil {
+		return
+	}
+
+	t := reflect.TypeOf(output)
+	if t.Kind() != reflect.Ptr {
+		panic(errors.New("provided output type is not a pointer"))
+	}
+
+	reflect.ValueOf(output).Elem().Set(reflect.ValueOf(smallest))
+}
+
+// Max finds the largest value in this Stream based on the given comparison function.
+//
+// The given comparison function must have a type signature of:
+//
+//    <T> func(left, right T) bool
+//
+// And the input type T must be compatible with every element in the Stream that makes it to this function. If this
+// type signature isn't correct, a panic will occur.
+//
+// The given function should return true if the left parameter should be considered smaller, or should come before, the
+// right parameter.
+func (s *Stream) Max(output interface{}, lessFunc CompareFunction) {
+	s.Min(output, func(left, right interface{}) bool {
+		return callFunc(lessFunc, right, left)[0].(bool)
+	})
 }

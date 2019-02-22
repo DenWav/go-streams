@@ -2,7 +2,7 @@ package streams_test
 
 import (
 	"github.com/DemonWav/go-streams"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/goleak"
 	"math/rand"
 	"sort"
@@ -30,7 +30,7 @@ func TestStream_All(t *testing.T) {
 			return unicode.IsSpace(char)
 		})
 
-	require.True(t, res)
+	assert.True(t, res)
 }
 
 func TestStream(t *testing.T) {
@@ -66,7 +66,7 @@ func TestStream(t *testing.T) {
 			return unicode.IsSpace(char)
 		})
 
-	require.True(t, res)
+	assert.True(t, res)
 }
 
 func Test(t *testing.T) {
@@ -99,7 +99,7 @@ func Test(t *testing.T) {
 			return int32(i)
 		})
 
-	require.EqualValues(t, 20000, sum)
+	assert.EqualValues(t, 20000, sum)
 }
 
 func TestDistinct(t *testing.T) {
@@ -129,7 +129,7 @@ func TestDistinct(t *testing.T) {
 			return int32(i)
 		})
 
-	require.EqualValues(t, 2, sum)
+	assert.EqualValues(t, 2, sum)
 }
 
 func TestSort(t *testing.T) {
@@ -157,7 +157,7 @@ func TestSort(t *testing.T) {
 		}).
 		ToSlice(&res)
 
-	require.True(t, sort.IntsAreSorted(res))
+	assert.True(t, sort.IntsAreSorted(res))
 }
 
 func TestAvg(t *testing.T) {
@@ -169,7 +169,7 @@ func TestAvg(t *testing.T) {
 			return f
 		})
 
-	require.EqualValues(t, 5, avg)
+	assert.EqualValues(t, 5, avg)
 }
 
 func TestCount(t *testing.T) {
@@ -182,5 +182,112 @@ func TestCount(t *testing.T) {
 		}).
 		Count()
 
-	require.Equal(t, 2, count)
+	assert.Equal(t, 2, count)
+}
+
+func TestForEach(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{0, 1, 2}
+	var output []int
+
+	streams.NewSliceStream(data).
+		ForEach(func(i int) {
+			output = append(output, i)
+		})
+
+	assert.Equal(t, data, output)
+}
+
+func TestToChan(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{0, 1, 2}
+	var output []int
+
+	c := make(chan int)
+	q := make(chan bool, 1)
+
+	go func() {
+		for {
+			select {
+			case i, ok := <-c:
+				if !ok {
+					return
+				}
+				output = append(output, i)
+			case <-q:
+				return
+			}
+		}
+	}()
+
+	streams.NewSliceStream(data).
+		WithCancel(q).
+		ToChan(c)
+
+	assert.Equal(t, data, output)
+}
+
+func TestSkip(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{0, 1, 2}
+	expected := []int{2}
+	var output []int
+
+	streams.NewSliceStream(data).
+		Skip(2).
+		ToSlice(&output)
+
+	assert.Equal(t, expected, output)
+}
+
+func TestOnEach(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{0, 1, 2}
+	var output1 []int
+	var output2 []int
+
+	streams.NewSliceStream(data).
+		OnEach(func(i int) {
+			output2 = append(output2, i)
+		}).
+		ForEach(func(i int) {
+			output1 = append(output1, i)
+		})
+
+	assert.Equal(t, data, output1)
+	assert.Equal(t, data, output2)
+}
+
+func TestMin(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{1, 6, -5}
+
+	var val int
+
+	streams.NewSliceStream(data).
+		Min(&val, func(left, right int) bool {
+			return left < right
+		})
+
+	assert.Equal(t, -5, val)
+}
+
+func TestMax(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{1, 6, -5}
+
+	var val int
+
+	streams.NewSliceStream(data).
+		Max(&val, func(left, right int) bool {
+			return left < right
+		})
+
+	assert.Equal(t, 6, val)
 }
