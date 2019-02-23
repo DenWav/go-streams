@@ -188,32 +188,23 @@ type Stream struct {
 // send operation will not wait or block, so either define each channel as a buffered channel, or make sure you're
 // always listening to it.
 func NewChanStream(channel interface{}, cancel ...chan<- bool) *Stream {
-	generic, c := generifyChannel(channel)
-
-	cancels := make([]chan<- bool, len(cancel)+1)
-	copy(cancels, cancel)
-	cancels[len(cancel)] = c
-
 	return &Stream{func() (interface{}, bool) {
-		item, ok := <-generic
+		item, ok := chanRecv(channel)
 		if ok {
 			return item, true
 		}
 
 		return nil, false
-	}, &cancels}
+	}, &cancel}
 }
 
 // NewSliceStream creates a new Stream object that uses the provided slice as the source. Teh first argument to this
 // function must be a []R where R is some type. The implicit type of the returned Stream will be R.
 func NewSliceStream(slice interface{}) *Stream {
-	generic := generifySlice(slice)
-
 	index := 0
-
 	return &Stream{func() (interface{}, bool) {
-		if index < len(generic) {
-			item := generic[index]
+		if index < sliceLength(slice) {
+			item := sliceIndex(slice, index)
 			index++
 			return item, true
 		}
@@ -221,103 +212,13 @@ func NewSliceStream(slice interface{}) *Stream {
 	}, &[]chan<- bool{}}
 }
 
-func generifySlice(slice interface{}) []interface{} {
-	t := reflect.TypeOf(slice)
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	if t.Kind() != reflect.Slice {
-		panic(errors.New("provided type is not a slice"))
-	}
-
-	if t.Elem().Kind() == reflect.Interface {
-		// Already []interface{}
-		return slice.([]interface{})
-	}
-
-	val := reflect.ValueOf(slice)
-
-	length := val.Len()
-	res := make([]interface{}, length)
-
-	for i := 0; i < length; i++ {
-		res[i] = val.Index(i).Interface()
-	}
-
-	return res
-}
-
-func generifyChannel(c interface{}) (<-chan interface{}, chan<- bool) {
-	t := reflect.TypeOf(c)
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	if t.Kind() != reflect.Chan || t.ChanDir()&reflect.RecvDir == 0 {
-		panic(errors.New("provided type is not <-chan"))
-	}
-
-	if t.Elem().Kind() == reflect.Interface {
-		// Already <-chan interface{}
-		return c.(<-chan interface{}), nil
-	}
-
-	val := reflect.ValueOf(c)
-
-	res := make(chan interface{})
-	cancel := make(chan bool, 1)
-
-	go func() {
-		cases := []reflect.SelectCase{
-			{reflect.SelectRecv, val, reflect.Value{}},
-			{reflect.SelectRecv, reflect.ValueOf(cancel), reflect.Value{}},
-		}
-		for {
-			i, item, ok := reflect.Select(cases)
-			if !ok || i == len(cases)-1 {
-				close(res)
-				return
-			}
-
-			select {
-			case res <- item.Interface():
-			case <-cancel:
-				close(res)
-				return
-			}
-		}
-	}()
-
-	return res, cancel
-}
-
-func convertToValues(args []interface{}) []reflect.Value {
-	res := make([]reflect.Value, len(args))
-
-	for i, v := range args {
-		res[i] = reflect.ValueOf(v)
-	}
-
-	return res
-}
-
-func convertToInterfaces(v []reflect.Value) []interface{} {
-	res := make([]interface{}, len(v))
-
-	for i, t := range v {
-		res[i] = t.Interface()
-	}
-
-	return res
-}
-
-func callFunc(f interface{}, args ...interface{}) []interface{} {
+func callFunc(f interface{}, args ...reflect.Value) []reflect.Value {
 	t := reflect.TypeOf(f)
 	if t.Kind() != reflect.Func {
 		panic(errors.New("provided type is not func"))
 	}
 
-	res := reflect.ValueOf(f).Call(convertToValues(args))
-	return convertToInterfaces(res)
+	return reflect.ValueOf(f).Call(args)
 }
 
 func (s *Stream) finish() {
@@ -347,7 +248,7 @@ func (s *Stream) Map(mapperFunc MapFunction) *Stream {
 		if !more {
 			return nil, false
 		}
-		return callFunc(mapperFunc, n)[0], true
+		return callFunc(mapperFunc, reflect.ValueOf(n))[0].Interface(), true
 	}, s.cancel}
 }
 
@@ -365,7 +266,7 @@ func (s *Stream) Filter(filterFunc FilterFunction) *Stream {
 	return &Stream{func() (interface{}, bool) {
 		n, more := s.next()
 		for more {
-			if callFunc(filterFunc, n)[0].(bool) {
+			if callFunc(filterFunc, reflect.ValueOf(n))[0].Interface().(bool) {
 				return n, true
 			}
 			n, more = s.next()
@@ -393,7 +294,7 @@ func (s *Stream) Filter(filterFunc FilterFunction) *Stream {
 //
 // then the returned Stream will process elements of type rune.
 func (s *Stream) ChanFlatMap(mapperFunc ChanMapFunction) *Stream {
-	var currentChan <-chan interface{}
+	var currentChan interface{}
 
 	nextChan := func() {
 		if currentChan == nil {
@@ -401,9 +302,7 @@ func (s *Stream) ChanFlatMap(mapperFunc ChanMapFunction) *Stream {
 			if !more {
 				return
 			}
-			c, cancel := generifyChannel(callFunc(mapperFunc, n)[0])
-			currentChan = c
-			*s.cancel = append(*s.cancel, cancel)
+			currentChan = callFunc(mapperFunc, reflect.ValueOf(n))[0].Interface()
 		}
 	}
 
@@ -414,7 +313,7 @@ func (s *Stream) ChanFlatMap(mapperFunc ChanMapFunction) *Stream {
 			return nil, false, false
 		}
 
-		next, ok := <-currentChan
+		next, ok := chanRecv(currentChan)
 		if !ok {
 			currentChan = nil
 			return nil, true, true
@@ -462,12 +361,14 @@ func (s *Stream) SliceFlatMap(mapperFunc SliceMapFunction) *Stream {
 			return nil
 		}
 
-		slice := generifySlice(callFunc(mapperFunc, item)[0])
+		slice := callFunc(mapperFunc, reflect.ValueOf(item))[0].Interface()
 		resChan := make(chan interface{})
 
 		go func() {
-			for _, item := range slice {
-				resChan <- item
+			length := sliceLength(slice)
+			for i := 0; i < length; i++ {
+				el := sliceIndex(slice, i)
+				resChan <- el
 			}
 			close(resChan)
 		}()
@@ -553,7 +454,9 @@ func (s *sortable) Swap(i, j int) {
 }
 
 func (s *sortable) Less(i, j int) bool {
-	return callFunc(s.compFunc, s.data[i], s.data[j])[0].(bool)
+	left := reflect.ValueOf(s.data[i])
+	right := reflect.ValueOf(s.data[j])
+	return callFunc(s.compFunc, left, right)[0].Bool()
 }
 
 // Sort returns a Stream where every item is in sorted order defined by the given comparison function.
@@ -618,7 +521,7 @@ func (s *Stream) OnEach(voidFunc VoidFunction) *Stream {
 		if !more {
 			return nil, false
 		}
-		callFunc(voidFunc, n)
+		callFunc(voidFunc, reflect.ValueOf(n))
 		return n, true
 	}, s.cancel}
 }
@@ -648,7 +551,7 @@ func (s *Stream) First(filterFunc FilterFunction) (interface{}, bool) {
 		if !more {
 			return nil, false
 		}
-		if callFunc(filterFunc, n)[0].(bool) {
+		if callFunc(filterFunc, reflect.ValueOf(n))[0].Bool() {
 			return n, true
 		}
 	}
@@ -703,7 +606,7 @@ func (s *Stream) Any(filterFunc FilterFunction) bool {
 		if !more {
 			return false
 		}
-		if callFunc(filterFunc, n)[0].(bool) {
+		if callFunc(filterFunc, reflect.ValueOf(n))[0].Bool() {
 			return true
 		}
 	}
@@ -741,7 +644,7 @@ func (s *Stream) All(filterFunc FilterFunction) bool {
 		if !more {
 			return true
 		}
-		if !callFunc(filterFunc, n)[0].(bool) {
+		if !callFunc(filterFunc, reflect.ValueOf(n))[0].Bool() {
 			return false
 		}
 	}
@@ -763,7 +666,7 @@ func (s *Stream) ForEach(voidFunc VoidFunction) {
 		if !more {
 			return
 		}
-		callFunc(voidFunc, n)
+		callFunc(voidFunc, reflect.ValueOf(n))
 	}
 }
 
@@ -798,29 +701,7 @@ func (s *Stream) ToChan(channel interface{}) {
 	}
 }
 
-// SumInt32 returns the sum of the items in this Stream converted to int32 using the given mapping function.
-//
-// The given mapping function must have a type signature of:
-//
-//     <T> func(T) int32
-//
-// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-// type signature isn't correct, a panic will occur.
-func (s *Stream) SumInt32(mapperFunc MapToIntFunction) int32 {
-	defer s.finish()
-
-	var res int32 = 0
-	for {
-		v, more := s.next()
-		if !more {
-			break
-		}
-		res += callFunc(mapperFunc, v)[0].(int32)
-	}
-	return res
-}
-
-// SumInt64 returns the sum of the items in this Stream converted to int64 using the given mapping function.
+// SumInt returns the sum of the items in this Stream converted to int64 using the given mapping function.
 //
 // The given mapping function must have a type signature of:
 //
@@ -828,7 +709,7 @@ func (s *Stream) SumInt32(mapperFunc MapToIntFunction) int32 {
 //
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
-func (s *Stream) SumInt64(mapperFunc MapToIntFunction) int64 {
+func (s *Stream) SumInt(mapperFunc MapToIntFunction) int64 {
 	defer s.finish()
 
 	var res int64 = 0
@@ -837,34 +718,12 @@ func (s *Stream) SumInt64(mapperFunc MapToIntFunction) int64 {
 		if !more {
 			break
 		}
-		res += callFunc(mapperFunc, v)[0].(int64)
+		res += callFunc(mapperFunc, reflect.ValueOf(v))[0].Int()
 	}
 	return res
 }
 
-// SumFloat32 returns the sum of the items in this Stream converted to float32 using the given mapping function.
-//
-// The given mapping function must have a type signature of:
-//
-//     <T> func(T) float32
-//
-// And the input type must be compatible with every element in the Stream that makes it to this function. If this
-// type signature isn't correct, a panic will occur.
-func (s *Stream) SumFloat32(mapperFunc MapToFloatFunction) float32 {
-	defer s.finish()
-
-	var res float32 = 0
-	for {
-		v, more := s.next()
-		if !more {
-			break
-		}
-		res += callFunc(mapperFunc, v)[0].(float32)
-	}
-	return res
-}
-
-// SumFloat64 returns the sum of the items in this Stream converted to float64 using the given mapping function.
+// SumFloat returns the sum of the items in this Stream converted to float64 using the given mapping function.
 //
 // The given mapping function must have a type signature of:
 //
@@ -872,7 +731,7 @@ func (s *Stream) SumFloat32(mapperFunc MapToFloatFunction) float32 {
 //
 // And the input type must be compatible with every element in the Stream that makes it to this function. If this
 // type signature isn't correct, a panic will occur.
-func (s *Stream) SumFloat64(mapperFunc MapToFloatFunction) float64 {
+func (s *Stream) SumFloat(mapperFunc MapToFloatFunction) float64 {
 	defer s.finish()
 
 	var res float64 = 0
@@ -881,7 +740,7 @@ func (s *Stream) SumFloat64(mapperFunc MapToFloatFunction) float64 {
 		if !more {
 			break
 		}
-		res += callFunc(mapperFunc, v)[0].(float64)
+		res += callFunc(mapperFunc, reflect.ValueOf(v))[0].Float()
 	}
 	return res
 }
@@ -898,8 +757,8 @@ func (s *Stream) AvgInt(mapperFunc MapToIntFunction) int64 {
 	defer s.finish()
 
 	var (
-		sum int64 = 0
-		count = 0
+		sum   int64 = 0
+		count       = 0
 	)
 
 	for {
@@ -908,7 +767,7 @@ func (s *Stream) AvgInt(mapperFunc MapToIntFunction) int64 {
 			break
 		}
 
-		sum += callFunc(mapperFunc, item)[0].(int64)
+		sum += callFunc(mapperFunc, reflect.ValueOf(item))[0].Int()
 		count++
 	}
 
@@ -927,8 +786,8 @@ func (s *Stream) AvgFloat(mapperFunc MapToFloatFunction) float64 {
 	defer s.finish()
 
 	var (
-		sum float64 = 0
-		count = 0
+		sum   float64 = 0
+		count         = 0
 	)
 
 	for {
@@ -937,7 +796,7 @@ func (s *Stream) AvgFloat(mapperFunc MapToFloatFunction) float64 {
 			break
 		}
 
-		sum += callFunc(mapperFunc, item)[0].(float64)
+		sum += callFunc(mapperFunc, reflect.ValueOf(item))[0].Float()
 		count++
 	}
 
@@ -958,7 +817,7 @@ func (s *Stream) AvgFloat(mapperFunc MapToFloatFunction) float64 {
 func (s *Stream) Min(output interface{}, lessFunc CompareFunction) {
 	defer s.finish()
 
-	var smallest interface{}
+	var smallest *reflect.Value
 
 	for {
 		item, more := s.next()
@@ -967,10 +826,12 @@ func (s *Stream) Min(output interface{}, lessFunc CompareFunction) {
 		}
 
 		if smallest == nil {
-			smallest = item
+			val := reflect.ValueOf(item)
+			smallest = &val
 		} else {
-			if !callFunc(lessFunc, smallest, item)[0].(bool) {
-				smallest = item
+			val := reflect.ValueOf(item)
+			if !callFunc(lessFunc, *smallest, val)[0].Bool() {
+				smallest = &val
 			}
 		}
 	}
@@ -984,7 +845,7 @@ func (s *Stream) Min(output interface{}, lessFunc CompareFunction) {
 		panic(errors.New("provided output type is not a pointer"))
 	}
 
-	reflect.ValueOf(output).Elem().Set(reflect.ValueOf(smallest))
+	reflect.ValueOf(output).Elem().Set(*smallest)
 }
 
 // Max finds the largest value in this Stream based on the given comparison function.
@@ -1000,6 +861,6 @@ func (s *Stream) Min(output interface{}, lessFunc CompareFunction) {
 // right parameter.
 func (s *Stream) Max(output interface{}, lessFunc CompareFunction) {
 	s.Min(output, func(left, right interface{}) bool {
-		return callFunc(lessFunc, right, left)[0].(bool)
+		return callFunc(lessFunc, reflect.ValueOf(right), reflect.ValueOf(left))[0].Bool()
 	})
 }

@@ -36,7 +36,7 @@ func TestStream_All(t *testing.T) {
 func TestStream(t *testing.T) {
 	defer goleak.VerifyNoLeaks(t)
 
-	c := make(chan string, 2)
+	c := make(chan string)
 	go func() {
 		c <- "hello"
 		c <- " asdf ad fas "
@@ -95,8 +95,8 @@ func Test(t *testing.T) {
 			return i%4 != 0
 		}).
 		Take(100).
-		SumInt32(func(i int) int32 {
-			return int32(i)
+		SumInt(func(i int) int64 {
+			return int64(i)
 		})
 
 	assert.EqualValues(t, 20000, sum)
@@ -125,8 +125,8 @@ func TestDistinct(t *testing.T) {
 		}).
 		Take(100).
 		Distinct().
-		SumInt32(func(i int) int32 {
-			return int32(i)
+		SumInt(func(i int) int64 {
+			return int64(i)
 		})
 
 	assert.EqualValues(t, 2, sum)
