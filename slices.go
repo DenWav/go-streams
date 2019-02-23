@@ -5,7 +5,7 @@ import (
 	"reflect"
 )
 
-func checkSlice(slice interface{}) reflect.Type {
+func checkSlice(slice AnySlice) reflect.Type {
 	t := reflect.TypeOf(slice)
 	if t.Kind() != reflect.Slice {
 		panic(errors.New("provided type is not a slice"))
@@ -13,7 +13,7 @@ func checkSlice(slice interface{}) reflect.Type {
 	return t
 }
 
-func sliceIndex(slice interface{}, index int) interface{} {
+func sliceIndex(slice AnySlice, index int) AnyType {
 	t := checkSlice(slice)
 
 	if t.Elem().Kind() == reflect.Interface {
@@ -25,7 +25,7 @@ func sliceIndex(slice interface{}, index int) interface{} {
 	return val.Index(index).Interface()
 }
 
-func sliceLength(slice interface{}) int {
+func sliceLen(slice AnySlice) int {
 	checkSlice(slice)
 
 	val := reflect.ValueOf(slice)

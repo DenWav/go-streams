@@ -4,6 +4,7 @@ import (
 	"github.com/DemonWav/go-streams"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/goleak"
+	"math"
 	"math/rand"
 	"sort"
 	"strings"
@@ -290,4 +291,63 @@ func TestMax(t *testing.T) {
 		})
 
 	assert.Equal(t, 6, val)
+}
+
+func TestReduce(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := "The quick brown fox jumped over the lazy sheep dog."
+
+	var res map[rune]int
+
+	streams.NewSliceStream([]string{data}).
+		SliceFlatMap(func(line string) []rune {
+			return []rune(line)
+		}).
+		Filter(func(char rune) bool {
+			return unicode.IsLetter(char)
+		}).
+		Map(func(char rune) rune {
+			return unicode.ToLower(char)
+		}).
+		Reduce(&res, make(map[rune]int), func(char rune, m map[rune]int) map[rune]int {
+			m[char]++
+			return m
+		})
+
+	// The expected value hilariously shows how in-applicable this problem is to the above solution :D
+	exp := make(map[rune]int)
+	for _, c := range data {
+		if !unicode.IsLetter(c) {
+			continue
+		}
+		exp[unicode.ToLower(c)]++
+	}
+
+	assert.Equal(t, exp, res)
+}
+
+func TestReduceMin(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{1, 6, -5}
+
+	var valMin int
+	var valReduce int
+
+	streams.NewSliceStream(data).
+		Min(&valMin, func(left, right int) bool {
+			return left < right
+		})
+
+	streams.NewSliceStream(data).
+		Reduce(&valReduce, int(math.MaxInt32), func(item, out int) int {
+			if item < out {
+				return item
+			} else {
+				return out
+			}
+		})
+
+	assert.Equal(t, valMin, valReduce)
 }
