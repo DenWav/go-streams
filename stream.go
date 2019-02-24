@@ -663,7 +663,7 @@ func (s *Stream) Concat(others ...*Stream) *Stream {
 //
 // The generic type signature for this function would be:
 //
-//     <R> func (s *Stream<T>) Zip(other *Stream<U>, biMapFunc func(left T, right U) R)
+//     <R> func (s *Stream<T>) Zip(other *Stream<U>, biMapFunc func(left T, right U) R) *Stream<R>
 //
 // Where the left argument to biMapFunc is an element from this Stream, so must match this Stream's implicit type, and
 // the right argument to biMapFunc is an element from the other Stream, so much match the other Stream's implicit type.
