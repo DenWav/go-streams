@@ -135,6 +135,15 @@ type MapToFloatFunction interface{}
 // occur.
 type AccumulatorFunction interface{}
 
+// BiMapFunction is an empty stand-in type for a generic function with a type signature as
+//
+//     <T, R> func(left, right T) R
+//
+// Where there is some type T which is the same type for 2 input parameters to the function, and some type R which is
+// the single output of the function. If this type signature is not maintained where this function is used, a panic
+// will occur.
+type BiMapFunction interface{}
+
 // AnyType is an empty stand-in type for any type. Unlike other places in this library where interface{} is used to
 // mimic generic functions, any place this is used signifies the element may be a value of any particular type, as long
 // as the type is compatible with where it is used as defined by the documentation.
@@ -332,7 +341,7 @@ func (s *Stream) ChanFlatMap(mapperFunc ChanMapFunction) *Stream {
 		}
 	}
 
-	nextItem := func() (res interface{}, retry, more bool) {
+	nextItem := func() (res AnyType, retry, more bool) {
 		nextChan()
 
 		if currentChan == nil {
@@ -386,7 +395,7 @@ func (s *Stream) SliceFlatMap(mapperFunc SliceMapFunction) *Stream {
 	currentIndex := 0
 	sliceLength := 0
 
-	nextItem := func() (res interface{}, retry, more bool) {
+	nextItem := func() (res AnyType, retry, more bool) {
 		if currentSlice == nil {
 			item, more := s.next()
 			if !more {
@@ -572,6 +581,105 @@ func (s *Stream) OnEach(voidFunc VoidFunction) *Stream {
 		callFunc(voidFunc, reflect.ValueOf(n))
 		return n, true
 	}, s.cancel}
+}
+
+// Concat returns a Stream where the elements of the Stream are the elements of this stream, followed by the elements of
+// the Streams provided.
+func (s *Stream) Concat(others ...*Stream) *Stream {
+	currentStream := s
+	index := -1
+	length := len(others)
+
+	cancels := *s.cancel
+	for _, other := range others {
+		cancels = append(cancels, *other.cancel...)
+	}
+
+	nextItem := func() (item AnyType, retry, more bool) {
+		if currentStream == nil {
+			return nil, false, false
+		}
+
+		n, more := currentStream.next()
+		if more {
+			return n, false, true
+		}
+
+		if index >= length {
+			return nil, false, false
+		}
+
+		index++
+		if index < length {
+			currentStream = others[index]
+			return nil, true, true
+		} else {
+			currentStream = nil
+			return nil, false, false
+		}
+	}
+
+	return &Stream{func() (AnyType, bool) {
+		n, retry, more := nextItem()
+		if !more {
+			return nil, false
+		}
+		for retry {
+			n, retry, more = nextItem()
+			if !more {
+				return nil, false
+			}
+		}
+		return n, true
+	}, &cancels}
+}
+
+// Zip returns a Stream where each element is the result of calling biMapFunc on each of the elements of this Stream and
+// the given Stream together. The generic type signature for this function would be:
+//
+//     R func (s *Stream<T>) Zip(other *Stream<U>, biMapFunc func(left T, right U) R)
+//
+// Where the left argument to biMapFunc is an element from this Stream, so must match this Stream's implicit type, and
+// the right argument to biMapFunc is an element from the other Stream, so much match the other Stream's implicit type.
+// The type biMapFunc returns is the implicit type for the returned Stream.
+//
+// This process pairs together elements from the two Streams one-to-one, unless one Stream runs out of elements before
+// the other. In this case, the argument for that Stream will be zeroValue until the Stream that still has items runs
+// out of items as well. For example:
+//
+//     this | other | function call
+//        1 |     3 | biMapFunc(1, 3)
+//        2 |     2 | biMapFunc(2, 2)
+//        3 |     1 | biMapFunc(3, 1)
+//        4 |       | biMapFunc(4, 0)
+//        5 |       | biMapFunc(5, 0)
+//
+// In this example, the this Stream contained the ints 1, 2, 3, 4, 5; and the other stream contained the ints 3, 2, 1.
+// The resulting arguments to biMapFunc were the elements of the two Streams up until the other Stream ran out of
+// elements. In this case, the argument passed to zeroValue (in this case 0) is used for the right argument of
+// biMapFunc.
+func (s *Stream) Zip(other *Stream, zeroValue AnyType, biMapFunc BiMapFunction) *Stream {
+	cancels := make([]chan<- bool, len(*s.cancel)+len(*other.cancel))
+	cancels = append(cancels, *s.cancel...)
+	cancels = append(cancels, *other.cancel...)
+
+	return &Stream{func() (AnyType, bool) {
+		left, moreLeft := s.next()
+		right, moreRight := other.next()
+		if !moreLeft && !moreRight {
+			return nil, false
+		}
+
+		if !moreLeft {
+			left = zeroValue
+		}
+		if !moreRight {
+			right = zeroValue
+		}
+
+		res := callFunc(biMapFunc, reflect.ValueOf(left), reflect.ValueOf(right))[0].Interface()
+		return res, true
+	}, &cancels}
 }
 
 // WithCancel takes in a sendable channel which takes a bool to signify that the Stream process has completed. Use

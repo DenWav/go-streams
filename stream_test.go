@@ -351,3 +351,69 @@ func TestReduceMin(t *testing.T) {
 
 	assert.Equal(t, valMin, valReduce)
 }
+
+func TestConcat(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{0, 1, 2}
+
+	var out []int
+
+	streams.NewSliceStream(data).
+		Concat(streams.NewSliceStream(data)).
+		Concat(streams.NewSliceStream(data)).
+		ToSlice(&out)
+
+	var expected []int
+	expected = append(expected, data...)
+	expected = append(expected, data...)
+	expected = append(expected, data...)
+
+	assert.Equal(t, expected, out)
+}
+
+func TestZip(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{0, 1, 2}
+
+	var out []int
+
+	streams.NewSliceStream(data).
+		Zip(streams.NewSliceStream(data), 0, func(left, right int) int {
+			return left + right
+		}).
+		ToSlice(&out)
+
+	expected := make([]int, len(data))
+	for i, v := range data {
+		expected[i] = v + v
+	}
+
+	assert.Equal(t, expected, out)
+}
+
+func TestMismatchedZip(t *testing.T) {
+	defer goleak.VerifyNoLeaks(t)
+
+	data := []int{0, 1, 2}
+
+	var out []int
+
+	streams.NewSliceStream(data).
+		Concat(streams.NewSliceStream(data)).
+		Zip(streams.NewSliceStream(data), 0, func(left, right int) int {
+			return left + right
+		}).
+		ToSlice(&out)
+
+	expected := make([]int, len(data)*2)
+	for i, v := range data {
+		expected[i] = v + v
+	}
+	for i, v := range data {
+		expected[len(data)+i] = v
+	}
+
+	assert.Equal(t, expected, out)
+}
