@@ -8,6 +8,8 @@ chain of functions which operates on some source of values. Streams allows you t
 perform on a source of iterated values. The pieces of the pipeline are lazily evaluated, so for example, items which
 fail a Filter operation will not be passed to a following Map operation (or any operation).
 
+This library does not depend on any other packages at runtime - all dependencies are for tests only.
+
 Use this library with:
 
 ```go
