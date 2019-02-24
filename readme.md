@@ -22,41 +22,41 @@ A typical usage of this API might look something like this:
 package main
 
 import (
-	"fmt"
-	"github.com/DemonWav/go-streams"
+        "fmt"
+        "github.com/DemonWav/go-streams"
 )
 
 func main() {
-	cancel := make(chan bool, 1)
-    c := make(chan int)
-    
-    go func() {
-    	for i := 2; ; i++ {
-    		select {
-    		case c <- i:
-    		case <-cancel:
-    			close(c)
-    			return
-    		}
-    	}
-    }()
-    
-    seen := make([]int, 0)
-    
-    streams.NewChanStream(c).
-    	WithCancel(cancel).
-    	Filter(func(i int) bool {
-    		return streams.NewSliceStream(seen).None(func(n int) bool {
-    			return i%n == 0
-    		})
-    	}).
-    	OnEach(func(i int) {
-    		seen = append(seen, i)
-    	}).
-    	Take(100).
-    	ForEach(func(i int) {
-    		fmt.Println(i)
-    	})
+        cancel := make(chan bool, 1)
+        c := make(chan int)
+
+        go func() {
+                for i := 2; ; i++ {
+                        select {
+                        case c <- i:
+                        case <-cancel:
+                                close(c)
+                                return
+                        }
+                }
+        }()
+
+        seen := make([]int, 0)
+
+        streams.NewChanStream(c).
+                WithCancel(cancel).
+                Filter(func(i int) bool {
+                        return streams.NewSliceStream(seen).None(func(n int) bool {
+                                return i%n == 0
+                        })
+                }).
+                OnEach(func(i int) {
+                        seen = append(seen, i)
+                }).
+                Take(100).
+                ForEach(func(i int) {
+                        fmt.Println(i)
+                })
 }
 ```
 
