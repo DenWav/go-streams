@@ -17,36 +17,45 @@ import "github.com/DemonWav/go-streams"
 A typical usage of this API might look something like this:
 
 ```go
-cancel := make(chan bool, 1)
-c := make(chan int)
+package main
 
-go func() {
-	for i := 2; ; i++ {
-		select {
-		case c <- i:
-		case <-cancel:
-			close(c)
-			return
-		}
-	}
-}()
+import (
+	"fmt"
+	"github.com/DemonWav/go-streams"
+)
 
-seen := make([]int, 0)
-
-streams.NewChanStream(c).
-	WithCancel(cancel).
-	Filter(func(i int) bool {
-		return streams.NewSliceStream(seen).None(func(n int) bool {
-			return i%n == 0
-		})
-	}).
-	OnEach(func(i int) {
-		seen = append(seen, i)
-	}).
-	Take(100).
-	ForEach(func(i int) {
-		fmt.Println(i)
-	})
+func main() {
+	cancel := make(chan bool, 1)
+    c := make(chan int)
+    
+    go func() {
+    	for i := 2; ; i++ {
+    		select {
+    		case c <- i:
+    		case <-cancel:
+    			close(c)
+    			return
+    		}
+    	}
+    }()
+    
+    seen := make([]int, 0)
+    
+    streams.NewChanStream(c).
+    	WithCancel(cancel).
+    	Filter(func(i int) bool {
+    		return streams.NewSliceStream(seen).None(func(n int) bool {
+    			return i%n == 0
+    		})
+    	}).
+    	OnEach(func(i int) {
+    		seen = append(seen, i)
+    	}).
+    	Take(100).
+    	ForEach(func(i int) {
+    		fmt.Println(i)
+    	})
+}
 ```
 
 In this example, an infinite Stream of integers is used as a channel source for the Stream, and the first 100 prime
