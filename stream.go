@@ -212,21 +212,37 @@ type Stream struct {
 	cancel *[]chan<- bool
 }
 
-// NewChanStream creates a new Stream object that uses the provided channel as the source. The first argument to this
-// function must be a <-chan R where R is some type. The implicit type of the returned Stream will be R.
+// NewStream creates a new Stream object that uses the provided channel or slice as the source. The first argument to
+// this function must be either a <-chan R, or []R, where R is some type. The implicit type of the returned Stream will
+// be R.
 //
-// The provided channel may be an infinite value generator. In this case, you must make sure to use limiting functions
-// like Take or First to prevent the Stream from processing forever and crashing.
+// If using a channel, the provided channel may be an infinite value generator. In this case, you must make sure to use
+// limiting functions like Take or First to prevent the Stream from processing forever and crashing.
 //
 // The generic type signature of this function would be:
 //
-//     <T> func NewChanStream(channel <-chan T, channel ...chan<- bool) *Stream<T>
+//     <S : []T | <-chan T> func NewStream(source S, channel ...chan<- bool) *Stream<T>
 //
-// Any arguments provided after the stream are channels which should be used to stop any running goroutine which needs
+// Which is to say there is some type S which is either a slice of T ([]T) or a receiving channel of T (<-chan T), which
+// would make this return a pointer to a Stream of T's (*Stream<T>).
+//
+// Any arguments provided after the source are channels which should be used to stop any running goroutine which needs
 // to be stopped when processing of the Stream completes. A single 'true' value will be sent to each channel given. The
 // send operation will not wait or block, so either define each channel as a buffered channel, or make sure you're
 // always listening to it.
-func NewChanStream(channel AnyChannel, cancel ...chan<- bool) *Stream {
+func NewStream(source AnyType, cancel ...chan<- bool) *Stream {
+	t := reflect.TypeOf(source)
+	switch t.Kind() {
+	case reflect.Slice:
+		return newSliceStream(source, cancel...)
+	case reflect.Chan:
+		return newChanStream(source, cancel...)
+	default:
+		panic("provided source is not a slice or channel")
+	}
+}
+
+func newChanStream(channel AnyChannel, cancel ...chan<- bool) *Stream {
 	return &Stream{func() (AnyType, bool) {
 		item, ok := chanRecv(channel)
 		if ok {
@@ -237,13 +253,7 @@ func NewChanStream(channel AnyChannel, cancel ...chan<- bool) *Stream {
 	}, &cancel}
 }
 
-// NewSliceStream creates a new Stream object that uses the provided slice as the source. Teh first argument to this
-// function must be a []R where R is some type. The implicit type of the returned Stream will be R.
-//
-// The generic type signature for this function would be:
-//
-//     <T> func NewSliceStream(slice []T) *Stream<T>
-func NewSliceStream(slice AnySlice) *Stream {
+func newSliceStream(slice AnySlice, cancel ...chan<- bool) *Stream {
 	index := 0
 	return &Stream{func() (AnyType, bool) {
 		if index < sliceLen(slice) {
@@ -252,7 +262,7 @@ func NewSliceStream(slice AnySlice) *Stream {
 			return item, true
 		}
 		return nil, false
-	}, &[]chan<- bool{}}
+	}, &cancel}
 }
 
 func callFunc(f interface{}, args ...reflect.Value) []reflect.Value {

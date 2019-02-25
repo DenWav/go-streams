@@ -43,10 +43,10 @@ func main() {
 
         seen := make([]int, 0)
 
-        streams.NewChanStream(c).
+        streams.NewStream(c).
                 WithCancel(cancel).
                 Filter(func(i int) bool {
-                        return streams.NewSliceStream(seen).None(func(n int) bool {
+                        return streams.NewStream(seen).None(func(n int) bool {
                                 return i%n == 0
                         })
                 }).

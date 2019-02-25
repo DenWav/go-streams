@@ -17,7 +17,7 @@ func TestStream_All(t *testing.T) {
 
 	s := []string{"hello", "world"}
 
-	res := streams.NewSliceStream(s).
+	res := streams.NewStream(s).
 		Filter(func(word string) bool {
 			return strings.Contains(word, "or")
 		}).
@@ -46,7 +46,7 @@ func TestStream(t *testing.T) {
 		close(c)
 	}()
 
-	res := streams.NewChanStream(c).
+	res := streams.NewStream(c).
 		Filter(func(word string) bool {
 			return strings.Contains(word, "el")
 		}).
@@ -87,7 +87,7 @@ func Test(t *testing.T) {
 		}
 	}()
 
-	sum := streams.NewChanStream(c).
+	sum := streams.NewStream(c).
 		WithCancel(cancel).
 		Map(func(i int) int {
 			return i * 2
@@ -120,7 +120,7 @@ func TestDistinct(t *testing.T) {
 		}
 	}()
 
-	sum := streams.NewChanStream(c, cancel).
+	sum := streams.NewStream(c, cancel).
 		Map(func(i int) int {
 			return i * 2
 		}).
@@ -151,7 +151,7 @@ func TestSort(t *testing.T) {
 	}()
 
 	var res []int
-	streams.NewChanStream(c, cancel).
+	streams.NewStream(c, cancel).
 		Take(10000).
 		Sort(func(left, right int) bool {
 			return left < right
@@ -165,7 +165,7 @@ func TestAvg(t *testing.T) {
 	defer goleak.VerifyNoLeaks(t)
 
 	data := []int64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-	avg := streams.NewSliceStream(data).
+	avg := streams.NewStream(data).
 		AvgInt(func(f int64) int64 {
 			return f
 		})
@@ -177,7 +177,7 @@ func TestCount(t *testing.T) {
 	defer goleak.VerifyNoLeaks(t)
 
 	data := []int{0, 1, 2}
-	count := streams.NewSliceStream(data).
+	count := streams.NewStream(data).
 		Filter(func(i int) bool {
 			return i != 1
 		}).
@@ -192,7 +192,7 @@ func TestForEach(t *testing.T) {
 	data := []int{0, 1, 2}
 	var output []int
 
-	streams.NewSliceStream(data).
+	streams.NewStream(data).
 		ForEach(func(i int) {
 			output = append(output, i)
 		})
@@ -223,7 +223,7 @@ func TestToChan(t *testing.T) {
 		}
 	}()
 
-	streams.NewSliceStream(data).
+	streams.NewStream(data).
 		WithCancel(q).
 		ToChan(c)
 
@@ -237,7 +237,7 @@ func TestSkip(t *testing.T) {
 	expected := []int{2}
 	var output []int
 
-	streams.NewSliceStream(data).
+	streams.NewStream(data).
 		Skip(2).
 		ToSlice(&output)
 
@@ -251,7 +251,7 @@ func TestOnEach(t *testing.T) {
 	var output1 []int
 	var output2 []int
 
-	streams.NewSliceStream(data).
+	streams.NewStream(data).
 		OnEach(func(i int) {
 			output2 = append(output2, i)
 		}).
@@ -270,7 +270,7 @@ func TestMin(t *testing.T) {
 
 	var val int
 
-	streams.NewSliceStream(data).
+	streams.NewStream(data).
 		Min(&val, func(left, right int) bool {
 			return left < right
 		})
@@ -285,7 +285,7 @@ func TestMax(t *testing.T) {
 
 	var val int
 
-	streams.NewSliceStream(data).
+	streams.NewStream(data).
 		Max(&val, func(left, right int) bool {
 			return left < right
 		})
@@ -300,7 +300,7 @@ func TestReduce(t *testing.T) {
 
 	var res map[rune]int
 
-	streams.NewSliceStream([]string{data}).
+	streams.NewStream([]string{data}).
 		SliceFlatMap(func(line string) []rune {
 			return []rune(line)
 		}).
@@ -335,12 +335,12 @@ func TestReduceMin(t *testing.T) {
 	var valMin int
 	var valReduce int
 
-	streams.NewSliceStream(data).
+	streams.NewStream(data).
 		Min(&valMin, func(left, right int) bool {
 			return left < right
 		})
 
-	streams.NewSliceStream(data).
+	streams.NewStream(data).
 		Reduce(&valReduce, int(math.MaxInt32), func(item, out int) int {
 			if item < out {
 				return item
@@ -359,9 +359,9 @@ func TestConcat(t *testing.T) {
 
 	var out []int
 
-	streams.NewSliceStream(data).
-		Concat(streams.NewSliceStream(data)).
-		Concat(streams.NewSliceStream(data)).
+	streams.NewStream(data).
+		Concat(streams.NewStream(data)).
+		Concat(streams.NewStream(data)).
 		ToSlice(&out)
 
 	var expected []int
@@ -379,8 +379,8 @@ func TestZip(t *testing.T) {
 
 	var out []int
 
-	streams.NewSliceStream(data).
-		Zip(streams.NewSliceStream(data), 0, func(left, right int) int {
+	streams.NewStream(data).
+		Zip(streams.NewStream(data), 0, func(left, right int) int {
 			return left + right
 		}).
 		ToSlice(&out)
@@ -400,9 +400,9 @@ func TestMismatchedZip(t *testing.T) {
 
 	var out []int
 
-	streams.NewSliceStream(data).
-		Concat(streams.NewSliceStream(data)).
-		Zip(streams.NewSliceStream(data), 0, func(left, right int) int {
+	streams.NewStream(data).
+		Concat(streams.NewStream(data)).
+		Zip(streams.NewStream(data), 0, func(left, right int) int {
 			return left + right
 		}).
 		ToSlice(&out)
